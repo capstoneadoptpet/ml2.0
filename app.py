@@ -11,15 +11,11 @@ UPLOAD_FOLDER = "temp"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 class_names = ['Anjing', 'Kelinci', 'Kucing']
-model = None
+
+model = load_model("model_klasifikasi_hewan.h5")
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-@app.before_first_request
-def load_model_once():
-    global model
-    model = load_model("model_klasifikasi_hewan.h5")
 
 def preprocess_image(image_path):
     image = Image.open(image_path).convert('RGB').resize((128, 128))
