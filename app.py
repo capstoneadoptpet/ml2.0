@@ -7,15 +7,19 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-# Load model
-model = load_model("model_klasifikasi_hewan.h5")
-
-# Nama kelas sesuai urutan training
-class_names = ['Anjing', 'Kelinci', 'Kucing']
-
-# Folder untuk file sementara
 UPLOAD_FOLDER = "temp"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+class_names = ['Anjing', 'Kelinci', 'Kucing']
+model = None
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.before_first_request
+def load_model_once():
+    global model
+    model = load_model("model_klasifikasi_hewan.h5")
 
 def preprocess_image(image_path):
     image = Image.open(image_path).convert('RGB').resize((128, 128))
@@ -30,6 +34,9 @@ def predict():
 
     file = request.files['image_file']
     selected_class = request.form.get('animal_class', '')
+
+    if not allowed_file(file.filename):
+        return jsonify({"error": "Invalid file type"}), 400
 
     filename = secure_filename(file.filename)
     filepath = os.path.join(UPLOAD_FOLDER, filename)
@@ -51,13 +58,17 @@ def predict():
             "is_match": is_match
         }
         return jsonify(result)
+
     except Exception as e:
+        print(f"Error during prediction: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
-        if os.path.exists(filepath):
-            os.remove(filepath)
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except Exception as cleanup_error:
+            print(f"Cleanup error: {cleanup_error}")
 
-# Untuk deployment di Render
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
