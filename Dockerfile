@@ -1,26 +1,36 @@
-# Gunakan image Python yang sesuai sebagai base image
 FROM python:3.9-slim
 
-# Set working directory di dalam container
+# Set working directory in the container
 WORKDIR /app
 
-# Upgrade pip terlebih dahulu
+# Install system dependencies required for TensorFlow
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libssl-dev \
+    libffi-dev \
+    libatlas-base-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
 RUN pip install --upgrade pip
 
-# Hapus cache pip
-RUN pip cache purge
-
-# Copy requirements.txt ke dalam container
+# Copy requirements.txt to the container
 COPY requirements.txt /app/
 
-# Install dependensi yang ada di requirements.txt
+# Install dependencies from requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy seluruh kode aplikasi ke dalam container
+# Disable GPU and enforce CPU usage
+RUN echo "import tensorflow as tf; tf.config.set_visible_devices([], 'GPU')" > /app/set_tensorflow_cpu.py
+
+# Disable oneDNN custom operations
+ENV TF_ENABLE_ONEDNN_OPTS=0
+
+# Copy the rest of the application code to the container
 COPY . /app/
 
-# Tentukan port yang digunakan oleh aplikasi
+# Expose port 5000
 EXPOSE 5000
 
-# Jalankan aplikasi Flask menggunakan Gunicorn
+# Run the Flask app using Gunicorn
 CMD ["gunicorn", "-b", "0.0.0.0:5000", "app:app"]
