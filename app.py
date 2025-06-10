@@ -1,46 +1,55 @@
 from flask import Flask, request, jsonify
-from tensorflow.keras.models import load_model
 import numpy as np
 from PIL import Image
+import tensorflow as tf
 import os
-from werkzeug.utils import secure_filename
+import logging
 
 app = Flask(__name__)
+app.logger.setLevel(logging.INFO)
 
-UPLOAD_FOLDER = "temp"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 class_names = ['Anjing', 'Kelinci', 'Kucing']
+model = None
 
-model = load_model("model_klasifikasi_hewan.h5")
+def load_model():
+    global model
+    if model is None:
+        app.logger.info("Loading model...")
+        from tensorflow.keras.models import load_model
+        with tf.device('/cpu:0'):  # Force CPU usage
+            model = load_model("model_klasifikasi_hewan.h5")
+        app.logger.info("Model loaded")
+    return model
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
 
-def preprocess_image(image_path):
-    image = Image.open(image_path).convert('RGB').resize((128, 128))
-    input_data = np.array(image, dtype=np.float32) / 255.0
-    input_data = np.expand_dims(input_data, axis=0)
-    return input_data
+def preprocess_image(file_stream):
+    img = Image.open(file_stream).convert('RGB').resize((128, 128))
+    input_data = np.array(img, dtype=np.float16) / 255.0  # Use float16
+    return np.expand_dims(input_data, axis=0)
+
+@app.route("/")
+def home():
+    return "Image Classification API is Running!"
 
 @app.route("/predict", methods=["POST"])
 def predict():
     if 'image_file' not in request.files:
         return jsonify({"error": "No image file provided"}), 400
-
+        
     file = request.files['image_file']
     selected_class = request.form.get('animal_class', '')
-
+    
     if not allowed_file(file.filename):
         return jsonify({"error": "Invalid file type"}), 400
-
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    file.save(filepath)
-
+        
     try:
-        input_data = preprocess_image(filepath)
-        prediction = model.predict(input_data)
+        model = load_model()
+        input_data = preprocess_image(file.stream)
+        
+        # Gunakan batch prediction untuk efisiensi
+        prediction = model.predict(input_data, batch_size=1)
         predicted_index = np.argmax(prediction)
         predicted_label = class_names[predicted_index]
         confidence = float(np.max(prediction)) * 100
@@ -56,14 +65,8 @@ def predict():
         return jsonify(result)
 
     except Exception as e:
-        print(f"Error during prediction: {e}")
-        return jsonify({"error": str(e)}), 500
-    finally:
-        try:
-            if os.path.exists(filepath):
-                os.remove(filepath)
-        except Exception as cleanup_error:
-            print(f"Cleanup error: {cleanup_error}")
+        app.logger.error(f"Prediction error: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
